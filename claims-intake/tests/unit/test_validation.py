@@ -5,7 +5,11 @@ import pytest
 
 from claims.models import NotificationRequest, Policy
 from claims.policy_client import StubPolicyClient
-from claims.service import evaluate_policy_exists, evaluate_policy_not_cancelled
+from claims.service import (
+    evaluate_loss_after_inception,
+    evaluate_policy_exists,
+    evaluate_policy_not_cancelled,
+)
 
 
 @pytest.fixture
@@ -82,5 +86,36 @@ def test_v7_ends_cover_at_the_cancellation_date(
     policy = motor_policy.model_copy(update={"cancellation_date": cancellation_date})
 
     outcome = evaluate_policy_not_cancelled(notification, policy)
+
+    assert outcome.code == expected
+
+
+@pytest.mark.parametrize(
+    ("effective_date", "loss_date", "expected"),
+    [
+        (date(2026, 5, 30), date(2026, 5, 31), None),
+        (date(2026, 6, 1), date(2026, 6, 1), None),
+        (date(2026, 6, 1), date(2026, 5, 31), "LOSS_BEFORE_INCEPTION"),
+    ],
+    ids=[
+        "day_after_effective_date_covered",
+        "day_on_effective_date_covered",
+        "day_before_effective_date_not_covered",
+    ],
+)
+def test_v2_covers_on_or_after_effective_date(
+    motor_notification: NotificationRequest,
+    motor_policy: Policy,
+    effective_date: date, 
+    loss_date: date, 
+    expected: str | None
+) -> None:
+    """WI-0142 AC-1 and AC-3. Cover takes effect on and after
+    the effective date, so a loss on that date is covered. A loss
+    before effective date is not covered. AC-4 is covered by V-1."""
+    notification = motor_notification.model_copy(update={"loss_date":loss_date})
+    policy = motor_policy.model_copy(update={"effective_date": effective_date})
+
+    outcome = evaluate_loss_after_inception(notification, policy)
 
     assert outcome.code == expected

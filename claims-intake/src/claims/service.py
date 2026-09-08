@@ -83,6 +83,24 @@ def evaluate_policy_exists(
     return ValidationOutcome.ok()
 
 
+def evaluate_policy_not_cancelled(
+    notification: NotificationRequest,
+    policy: Policy,
+) -> ValidationOutcome:
+    """V-7. The loss must not fall on or after the policy cancellation date."""
+    if policy.cancellation_date is None:
+        return ValidationOutcome.ok()
+    if notification.loss_date < policy.cancellation_date:
+        return ValidationOutcome.ok()
+    return ValidationOutcome.failed(
+        rule="V-7",
+        code="POLICY_CANCELLED",
+        policy_number=notification.policy_number,
+        loss_date=notification.loss_date,
+        cancellation_date=policy.cancellation_date,
+    )
+
+    
 def evaluate_loss_after_inception(
     notification: NotificationRequest,
     policy: Policy,
@@ -149,21 +167,3 @@ def submit_notification(
     between for a later reader to interpret.
     """
     raise NotImplementedError("Day 3 assignment")
-
-
-def evaluate_policy_not_cancelled(
-    notification: NotificationRequest,
-    policy: Policy,
-) -> ValidationOutcome:
-    """V-7. The loss must not fall on or after the policy cancellation date."""
-    if policy.cancellation_date is None:
-        return ValidationOutcome.ok()
-    if notification.loss_date < policy.cancellation_date:
-        return ValidationOutcome.ok()
-    return ValidationOutcome.failed(
-        rule="V-7",
-        code="POLICY_CANCELLED",
-        policy_number=notification.policy_number,
-        loss_date=notification.loss_date,
-        cancellation_date=policy.cancellation_date,
-    )
