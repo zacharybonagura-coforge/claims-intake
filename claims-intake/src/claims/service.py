@@ -246,4 +246,7 @@ def submit_notification(
     recorded with a claim reference or it does not exist, and there is no state in
     between for a later reader to interpret.
     """
-    raise NotImplementedError("Day 3 assignment")
+    outcome = evaluate_notification(notification, policy_client, repository)
+    if not outcome.passed:
+        return outcome
+    return repository.record(notification)
