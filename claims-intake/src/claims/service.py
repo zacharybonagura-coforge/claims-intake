@@ -172,6 +172,15 @@ def evaluate_claim_type_covered(
     )
 
 
+POLICY_RULES = (
+    evaluate_policy_not_cancelled,   # V-7
+    evaluate_loss_after_inception,   # V-2
+    evaluate_loss_before_expiry,     # V-3
+    evaluate_amount_within_limit,    # V-4
+    evaluate_claim_type_covered,     # V-5
+)
+
+
 def evaluate_notification(
     notification: NotificationRequest,
     policy_client: PolicyClient,
@@ -184,7 +193,46 @@ def evaluate_notification(
     It is fixed by contract section 4.1 and by nothing else. If you find yourself
     choosing an order here, the contract is incomplete and the fix belongs there.
     """
-    raise NotImplementedError("Day 3 assignment")
+    exists = evaluate_policy_exists(notification, policy_client)
+    if not exists.passed:
+        return exists
+
+    # V-6 lives here, not in POLICY_RULES. Duplicate detection is a query
+    # against recorded notifications (repository.find_matching). The policy
+    # rules are pure functions of (notification, policy). Contract 4.1 still
+    # runs V-6 after V-1 and before V-7.
+    existing = repository.find_matching(
+        notification.policy_number,
+        notification.loss_date,
+        notification.claim_type,
+    )
+    if existing is not None:
+        return ValidationOutcome.failed(
+            rule="V-6",
+            code="DUPLICATE_NOTIFICATION",
+            policy_number=notification.policy_number,
+            loss_date=notification.loss_date,
+            claim_type=notification.claim_type,
+            claim_reference=existing.claim_reference,
+        )
+    
+    record = policy_client.get_policy(notification.policy_number)
+    policy = Policy(
+        policy_number=record.policy_number,
+        product=record.product,
+        effective_date=record.effective_date,
+        expiry_date=record.expiry_date,
+        cancellation_date=record.cancellation_date,
+        limit=record.limit,
+        permitted_claim_types=record.permitted_claim_types,
+    )
+    
+    for rule in POLICY_RULES:
+        outcome = rule(notification, policy)
+        if not outcome.passed:
+            return outcome
+    
+    return ValidationOutcome.ok()
 
 
 def submit_notification(
