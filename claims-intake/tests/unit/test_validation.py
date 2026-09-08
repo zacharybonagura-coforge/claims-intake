@@ -4,10 +4,11 @@ from typing import Any
 
 import pytest
 
-from claims.models import ClaimType, NotificationRequest, Policy
-from claims.policy_client import StubPolicyClient
+from claims.models import ClaimType, NotificationRequest, Policy, RecordedNotification
+from claims.policy_client import LookupFailureReason, PolicyLookupFailed, StubPolicyClient
 from claims.repository import NotificationRepository
 from claims.service import (
+    ValidationOutcome,
     evaluate_amount_within_limit,
     evaluate_claim_type_covered,
     evaluate_loss_after_inception,
@@ -15,6 +16,7 @@ from claims.service import (
     evaluate_notification,
     evaluate_policy_exists,
     evaluate_policy_not_cancelled,
+    submit_notification,
 )
 
 
@@ -260,3 +262,84 @@ def test_v6_allows_when_only_two_fields_match(
     notification = motor_notification.model_copy(update=update)
     outcome = evaluate_notification(notification, policy_client, repository)
     assert outcome.code != "DUPLICATE_NOTIFICATION"
+
+
+def test_submit_records_a_valid_notification(
+    motor_notification: NotificationRequest,
+    policy_client: StubPolicyClient,
+    repository: NotificationRepository,
+) -> None:
+    first = submit_notification(motor_notification, policy_client, repository)
+    second = submit_notification(motor_notification, policy_client, repository)
+
+    assert isinstance(first, RecordedNotification)
+    assert first.status == "recorded"
+
+    found = repository.find_matching(
+        motor_notification.policy_number,
+        motor_notification.loss_date,
+        motor_notification.claim_type,
+    )
+    assert found is not None
+    assert found.claim_reference == first.claim_reference
+
+    assert isinstance(second, ValidationOutcome)
+    assert second.code == "DUPLICATE_NOTIFICATION"
+    assert second.detail["claim_reference"] == first.claim_reference
+
+
+@pytest.mark.parametrize(
+    "reason",
+    [
+        "timeout",
+        "unreachable",
+        "unparsable"
+    ],
+    ids=[
+        "lookup_timeout",
+        "lookup_unreachable",
+        "lookup_unparsable"
+    ],
+)
+def test_submit_propagates_policy_lookup_failure(
+    motor_notification: NotificationRequest,
+    repository: NotificationRepository,
+    reason: LookupFailureReason,
+) -> None:
+    client = StubPolicyClient(fail_with=reason)
+
+    with pytest.raises(PolicyLookupFailed) as caught:
+        submit_notification(motor_notification, client, repository)
+
+    assert caught.value.reason == reason
+    assert repository.find_matching(
+        motor_notification.policy_number,
+        motor_notification.loss_date,
+        motor_notification.claim_type,
+    ) is None
+
+
+def test_v6_rejected_submission_is_not_a_duplicate_on_retry(
+    policy_client: StubPolicyClient,
+    repository: NotificationRepository,
+) -> None:
+    """WI-0151 AC-3."""
+    refused = NotificationRequest(
+        policy_number="MOT-4471",
+        loss_date=date(2026, 1, 1),  # before MOT-4471 inception 2026-03-01
+        claim_type="collision",
+        estimated_amount=Decimal("4200.00"),
+    )
+
+    first = submit_notification(refused, policy_client, repository)
+    second = submit_notification(refused, policy_client, repository)
+
+    assert isinstance(first, ValidationOutcome)
+    assert first.code == "LOSS_BEFORE_INCEPTION"
+    assert repository.find_matching(
+        refused.policy_number,
+        refused.loss_date,
+        refused.claim_type
+    ) is None
+    assert isinstance(second, ValidationOutcome)
+    assert second.code == "LOSS_BEFORE_INCEPTION"
