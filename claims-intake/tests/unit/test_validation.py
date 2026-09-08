@@ -3,10 +3,11 @@ from decimal import Decimal
 
 import pytest
 
-from claims.models import NotificationRequest, Policy
+from claims.models import ClaimType, NotificationRequest, Policy
 from claims.policy_client import StubPolicyClient
 from claims.service import (
     evaluate_amount_within_limit,
+    evaluate_claim_type_covered,
     evaluate_loss_after_inception,
     evaluate_loss_before_expiry,
     evaluate_policy_exists,
@@ -149,6 +150,34 @@ def test_v3_covers_on_or_before_expiry_date(
     policy = motor_policy.model_copy(update={"expiry_date": expiry_date})
 
     outcome = evaluate_loss_before_expiry(notification, policy)
+
+    assert outcome.code == expected
+
+
+@pytest.mark.parametrize(
+    ("claim_type", "permitted_claim_types", "expected"),
+    [
+        ("collision", ("collision", "theft", "glass", "liability", "weather"), None),
+        ("collision", ("theft", "glass", "weather", "liability"), "TYPE_NOT_COVERED"),
+    ],
+    ids=[
+        "claim_type_in_permitted_claim_types_covered",
+        "claim_type_not_in_permitted_claim_types_not_covered",
+    ],
+)
+def test_v5_covers_valid_types(
+    motor_notification: NotificationRequest,
+    motor_policy: Policy,
+    claim_type: ClaimType, 
+    permitted_claim_types: tuple[ClaimType, ...], 
+    expected: str | None
+) -> None:
+    """Contract 4.2 V-5. A claim_type in 2.3 is covered only if it is permitted on the
+    policy's product. Unknown types are INVALID_REQUEST and never reach this rule."""
+    notification = motor_notification.model_copy(update={"claim_type": claim_type})
+    policy = motor_policy.model_copy(update={"permitted_claim_types": permitted_claim_types})
+
+    outcome = evaluate_claim_type_covered(notification, policy)
 
     assert outcome.code == expected
 
