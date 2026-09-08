@@ -1,15 +1,18 @@
 from datetime import date
 from decimal import Decimal
+from typing import Any
 
 import pytest
 
 from claims.models import ClaimType, NotificationRequest, Policy
 from claims.policy_client import StubPolicyClient
+from claims.repository import NotificationRepository
 from claims.service import (
     evaluate_amount_within_limit,
     evaluate_claim_type_covered,
     evaluate_loss_after_inception,
     evaluate_loss_before_expiry,
+    evaluate_notification,
     evaluate_policy_exists,
     evaluate_policy_not_cancelled,
 )
@@ -36,6 +39,12 @@ def motor_policy() -> Policy:
         limit=Decimal("50000.00"),
         permitted_claim_types=("collision", "theft", "glass", "liability", "weather"),
     )
+
+
+@pytest.fixture
+def repository() -> NotificationRepository:
+    return NotificationRepository()
+
 
 @pytest.mark.parametrize(
     ("policy_number", "expected"),
@@ -210,3 +219,44 @@ def test_v4_covers_amount_not_exceeding_limit(
     outcome = evaluate_amount_within_limit(notification, policy)
 
     assert outcome.code == expected
+
+
+def test_v6_rejects_a_recorded_duplicate(
+    motor_notification: NotificationRequest,
+    policy_client: StubPolicyClient,
+    repository: NotificationRepository,
+) -> None:
+    """WI-0151 AC-1. Same policy_number, loss_date, and claim_type
+    as a recorded notification is DUPLICATE_NOTIFICATION. Detail carries
+    the existing claim reference."""
+    recorded = repository.record(motor_notification)
+    outcome = evaluate_notification(motor_notification, policy_client, repository)
+    assert outcome.code == "DUPLICATE_NOTIFICATION"
+    assert outcome.detail["claim_reference"] == recorded.claim_reference
+
+
+@pytest.mark.parametrize(
+    "update",
+    [
+        {"policy_number": "MOT-4472"},
+        {"loss_date": date(2026, 4, 3)},
+        {"claim_type": "theft"},
+    ],
+    ids=[
+        "policy_number_differs",
+        "loss_date_differs",
+        "claim_type_differs",
+    ],
+)
+def test_v6_allows_when_only_two_fields_match(
+    motor_notification: NotificationRequest,
+    policy_client: StubPolicyClient,
+    repository: NotificationRepository,
+    update: dict[str, Any],
+) -> None:
+    """Only two matching policy_number, loss_date, and claim_type
+    as a recorded notification is valid."""
+    repository.record(motor_notification)
+    notification = motor_notification.model_copy(update=update)
+    outcome = evaluate_notification(notification, policy_client, repository)
+    assert outcome.code != "DUPLICATE_NOTIFICATION"
