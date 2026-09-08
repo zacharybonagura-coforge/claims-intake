@@ -110,7 +110,15 @@ def evaluate_loss_after_inception(
     The boundary is stated in contract section 4.2 and in WI-0142 AC-3. A loss on
     the inception date is covered.
     """
-    raise NotImplementedError("Day 3 assignment")
+    if notification.loss_date >= policy.effective_date:
+        return ValidationOutcome.ok()
+    return ValidationOutcome.failed(
+        rule="V-2",
+        code="LOSS_BEFORE_INCEPTION",
+        policy_number=notification.policy_number,
+        loss_date=notification.loss_date,
+        effective_date=policy.effective_date,
+    )
 
 
 def evaluate_loss_before_expiry(
