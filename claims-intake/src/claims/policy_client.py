@@ -21,6 +21,8 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Literal, Protocol
 
+from claims.models import ClaimType
+
 LookupFailureReason = Literal["timeout", "unreachable", "unparsable"]
 
 DEFAULT_POLICY_DATA = Path(__file__).resolve().parents[2] / "data" / "policies.json"
@@ -67,7 +69,7 @@ class PolicyRecord:
         expiry_date: date,
         cancellation_date: date | None,
         limit: Decimal,
-        permitted_claim_types: tuple[str, ...],
+        permitted_claim_types: tuple[ClaimType, ...],
     ) -> None:
         self.policy_number = policy_number
         self.product = product
