@@ -149,3 +149,11 @@ def submit_notification(
     between for a later reader to interpret.
     """
     raise NotImplementedError("Day 3 assignment")
+
+
+def evaluate_policy_not_cancelled(
+    notification: NotificationRequest,
+    policy: Policy,
+) -> ValidationOutcome:
+    """V-7. The loss must not fall on or after the policy cancellation date."""
+    raise NotImplementedError("Day 3 assignment")
