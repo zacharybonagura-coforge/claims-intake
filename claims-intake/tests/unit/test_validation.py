@@ -6,6 +6,7 @@ import pytest
 from claims.models import NotificationRequest, Policy
 from claims.policy_client import StubPolicyClient
 from claims.service import (
+    evaluate_amount_within_limit,
     evaluate_loss_after_inception,
     evaluate_loss_before_expiry,
     evaluate_policy_exists,
@@ -148,5 +149,35 @@ def test_v3_covers_on_or_before_expiry_date(
     policy = motor_policy.model_copy(update={"expiry_date": expiry_date})
 
     outcome = evaluate_loss_before_expiry(notification, policy)
+
+    assert outcome.code == expected
+
+
+@pytest.mark.parametrize(
+    ("estimated_amount", "limit", "expected"),
+    [
+        (Decimal("49999.99"), Decimal("50000.00"), None),
+        (Decimal("50000.00"),  Decimal("50000.00"), None),
+        (Decimal("50000.01"),  Decimal("50000.00"), "AMOUNT_EXCEEDS_LIMIT"),
+    ],
+    ids=[
+        "estimated_amount_below_limit_covered",
+        "estimated_amount_at_limit_covered",
+        "estimated_amount_above_limit_not_covered",
+    ],
+)
+def test_v4_covers_amount_not_exceeding_limit(
+    motor_notification: NotificationRequest,
+    motor_policy: Policy,
+    estimated_amount: Decimal, 
+    limit: Decimal, 
+    expected: str | None
+) -> None:
+    """Contract 4.2 V-4. Cover includes estimated_amount at limit. A loss with 
+    estimated_amount greater than limit is not covered."""
+    notification = motor_notification.model_copy(update={"estimated_amount": estimated_amount})
+    policy = motor_policy.model_copy(update={"limit": limit})
+
+    outcome = evaluate_amount_within_limit(notification, policy)
 
     assert outcome.code == expected
