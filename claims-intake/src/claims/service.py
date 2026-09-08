@@ -156,4 +156,14 @@ def evaluate_policy_not_cancelled(
     policy: Policy,
 ) -> ValidationOutcome:
     """V-7. The loss must not fall on or after the policy cancellation date."""
-    raise NotImplementedError("Day 3 assignment")
+    if policy.cancellation_date is None:
+        return ValidationOutcome.ok()
+    if notification.loss_date < policy.cancellation_date:
+        return ValidationOutcome.ok()
+    return ValidationOutcome.failed(
+        rule="V-7",
+        code="POLICY_CANCELLED",
+        policy_number=notification.policy_number,
+        loss_date=notification.loss_date,
+        cancellation_date=policy.cancellation_date,
+    )
