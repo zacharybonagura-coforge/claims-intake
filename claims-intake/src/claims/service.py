@@ -145,7 +145,15 @@ def evaluate_amount_within_limit(
 
     An amount equal to the limit is within cover, per contract section 4.2.
     """
-    raise NotImplementedError("Day 3 assignment")
+    if notification.estimated_amount <= policy.limit:
+        return ValidationOutcome.ok()
+    return ValidationOutcome.failed(
+        rule="V-4",
+        code="AMOUNT_EXCEEDS_LIMIT",
+        policy_number=notification.policy_number,
+        estimated_amount=notification.estimated_amount,
+        limit=policy.limit,
+    )
 
 
 def evaluate_claim_type_covered(
