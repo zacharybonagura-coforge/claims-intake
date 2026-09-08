@@ -7,6 +7,7 @@ from claims.models import NotificationRequest, Policy
 from claims.policy_client import StubPolicyClient
 from claims.service import (
     evaluate_loss_after_inception,
+    evaluate_loss_before_expiry,
     evaluate_policy_exists,
     evaluate_policy_not_cancelled,
 )
@@ -117,5 +118,35 @@ def test_v2_covers_on_or_after_effective_date(
     policy = motor_policy.model_copy(update={"effective_date": effective_date})
 
     outcome = evaluate_loss_after_inception(notification, policy)
+
+    assert outcome.code == expected
+
+
+@pytest.mark.parametrize(
+    ("expiry_date", "loss_date", "expected"),
+    [
+        (date(2026, 6, 1), date(2026, 5, 31), None),
+        (date(2026, 6, 1), date(2026, 6, 1), None),
+        (date(2026, 5, 31), date(2026, 6, 1), "LOSS_AFTER_EXPIRY"),
+    ],
+    ids=[
+        "day_before_expiry_date_covered",
+        "day_on_expiry_date_covered",
+        "day_after_expiry_date_not_covered",
+    ],
+)
+def test_v3_covers_on_or_before_expiry_date(
+    motor_notification: NotificationRequest,
+    motor_policy: Policy,
+    expiry_date: date, 
+    loss_date: date, 
+    expected: str | None
+) -> None:
+    """Contract 4.2 V-3. Cover includes the expiry date. A loss after 
+    the expiry date is not covered."""
+    notification = motor_notification.model_copy(update={"loss_date":loss_date})
+    policy = motor_policy.model_copy(update={"expiry_date": expiry_date})
+
+    outcome = evaluate_loss_before_expiry(notification, policy)
 
     assert outcome.code == expected
