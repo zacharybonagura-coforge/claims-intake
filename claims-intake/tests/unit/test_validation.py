@@ -264,6 +264,88 @@ def test_v6_allows_when_only_two_fields_match(
     assert outcome.code != "DUPLICATE_NOTIFICATION"
 
 
+def test_v6_rejected_submission_is_not_a_duplicate_on_retry(
+    policy_client: StubPolicyClient,
+    repository: NotificationRepository,
+) -> None:
+    """WI-0151 AC-3."""
+    refused = NotificationRequest(
+        policy_number="MOT-4471",
+        loss_date=date(2026, 1, 1),  # before MOT-4471 inception 2026-03-01
+        claim_type="collision",
+        estimated_amount=Decimal("4200.00"),
+    )
+
+    first = submit_notification(refused, policy_client, repository)
+    second = submit_notification(refused, policy_client, repository)
+
+    assert isinstance(first, ValidationOutcome)
+    assert first.code == "LOSS_BEFORE_INCEPTION"
+    assert repository.find_matching(
+        refused.policy_number,
+        refused.loss_date,
+        refused.claim_type
+    ) is None
+    assert isinstance(second, ValidationOutcome)
+    assert second.code == "LOSS_BEFORE_INCEPTION"
+
+
+@pytest.mark.parametrize(
+    ("update", "expected"),
+    [
+        ({}, None),
+        (
+            {"policy_number": "MOT-9999", "loss_date": date(2020, 1, 1)},
+            "POLICY_NOT_FOUND",
+        ),
+        (
+            {"policy_number": "MOT-4479", "loss_date": date(2026, 2, 20)},
+            "LOSS_BEFORE_INCEPTION",
+        ),
+        (
+            {"policy_number": "MOT-4489", "loss_date": date(2026, 3, 20), "claim_type": "theft"},
+            "LOSS_AFTER_EXPIRY",
+        ),
+        (
+            {"policy_number": "MOT-4502", "estimated_amount": Decimal("14500.00")},
+            "AMOUNT_EXCEEDS_LIMIT",
+        ),
+        (
+            {"policy_number": "MOT-4486", "claim_type": "collision"},
+            "TYPE_NOT_COVERED",
+        ),
+        (
+            {"policy_number": "MOT-4496", "loss_date": date(2026, 3, 5), "claim_type": "glass"},
+            "POLICY_CANCELLED",
+        ),
+        (
+            {"policy_number": "MOT-4500", "loss_date": date(2026, 1, 8)},
+            "POLICY_CANCELLED",
+        ),
+    ],
+    ids=[
+        "valid_notification_passes",
+        "missing_policy_short_circuits_inception",  # WI-0142 AC-4
+        "loss_before_inception",
+        "loss_after_expiry",
+        "amount_exceeds_limit",
+        "type_not_covered",
+        "cancelled_inside_original_term",
+        "cancelled_and_after_expiry",  # WI-0158 AC-4
+    ],
+)
+def test_evaluate_notification_returns_the_first_failing_rule(
+    motor_notification: NotificationRequest,
+    policy_client: StubPolicyClient,
+    repository: NotificationRepository,
+    update: dict[str, Any],
+    expected: str | None,
+) -> None:
+    notification = motor_notification.model_copy(update=update)
+    outcome = evaluate_notification(notification, policy_client, repository)
+    assert outcome.code == expected
+
+
 def test_submit_records_a_valid_notification(
     motor_notification: NotificationRequest,
     policy_client: StubPolicyClient,
@@ -318,28 +400,3 @@ def test_submit_propagates_policy_lookup_failure(
         motor_notification.claim_type,
     ) is None
 
-
-def test_v6_rejected_submission_is_not_a_duplicate_on_retry(
-    policy_client: StubPolicyClient,
-    repository: NotificationRepository,
-) -> None:
-    """WI-0151 AC-3."""
-    refused = NotificationRequest(
-        policy_number="MOT-4471",
-        loss_date=date(2026, 1, 1),  # before MOT-4471 inception 2026-03-01
-        claim_type="collision",
-        estimated_amount=Decimal("4200.00"),
-    )
-
-    first = submit_notification(refused, policy_client, repository)
-    second = submit_notification(refused, policy_client, repository)
-
-    assert isinstance(first, ValidationOutcome)
-    assert first.code == "LOSS_BEFORE_INCEPTION"
-    assert repository.find_matching(
-        refused.policy_number,
-        refused.loss_date,
-        refused.claim_type
-    ) is None
-    assert isinstance(second, ValidationOutcome)
-    assert second.code == "LOSS_BEFORE_INCEPTION"
