@@ -135,14 +135,33 @@ def test_duplicate_notification_returns_409(client: TestClient) -> None:
     assert body["detail"]["claim_reference"] == first.json()["claim_reference"]
 
 
-def test_parse_failure_returns_400(client: TestClient) -> None:
-    body = {k: v for k, v in NOTIFICATION.items() if k != "loss_date"}
+@pytest.mark.parametrize(
+    ("body", "detail_key"),
+    [
+        (
+            {k: v for k, v in NOTIFICATION.items() if k != "loss_date"},
+            "missing_fields",
+        ),
+        (
+            {**NOTIFICATION, "unknown_field": "not-in-contract"},
+            "errors",
+        ),
+    ],
+    ids=["missing_loss_date", "extra_field"],
+)
+def test_parse_failure_returns_400(
+    client: TestClient,
+    body: dict[str, Any],
+    detail_key: str,
+) -> None:
     response = client.post("/notifications", json=body)
 
     assert response.status_code == 400
     payload = response.json()
     assert payload["code"] == "INVALID_REQUEST"
-    assert "loss_date" in payload["detail"]["missing_fields"]
+    assert detail_key in payload["detail"]
+    if detail_key == "missing_fields":
+        assert "loss_date" in payload["detail"]["missing_fields"]
 
 
 @pytest.mark.parametrize(
