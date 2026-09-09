@@ -205,7 +205,7 @@ return {
 
 return {
   "code": "INVALID_DEPENDENCY",
-  "message": "Invalid or unparsable response. Please try again.",
+  "message": "Request is missing required fields or malformed. Please try again.",
   "detail": { ... }
 }, 502
 
