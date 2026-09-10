@@ -94,8 +94,9 @@ def truncate_example(
     )
     input_tokens = int(payload.get("prompt_eval_count") or 0)
     output_tokens = int(payload.get("eval_count") or 0)
-    stop_reason = str(payload.get("done_reason") or "")
-    error_type = "TruncatedResponseError" if stop_reason == "length" else ""
+    stop_reason = payload.get("done_reason")
+    error_type = "TruncatedResponseError" if stop_reason == "length" else None
+    response_text = payload.get("response")
     truncation = CallRecord(
         record_id=str(uuid.uuid4()),
         run_id=truncation_run_id,
@@ -111,12 +112,12 @@ def truncate_example(
         max_output_tokens=tiny_predict,
         input_tokens=input_tokens,
         output_tokens=output_tokens,
-        cached_input_tokens=0,
+        cached_input_tokens=None,
         latency_ms=latency_ms,
         cost_usd=compute_cost(model.model_id, input_tokens, output_tokens),
         stop_reason=stop_reason,
         error_type=error_type,
-        response_text=str(payload.get("response") or ""),
+        response_text=response_text,
     )
     append_record(truncation, truncation_run_id)
     print("E11 truncation", stop_reason, error_type, output_tokens)
@@ -138,8 +139,9 @@ def main() -> None:
         )
         input_tokens = int(payload.get("prompt_eval_count") or 0)
         output_tokens = int(payload.get("eval_count") or 0)
-        response_text = str(payload.get("response") or "")
-        stop_reason = str(payload.get("done_reason") or "")
+        stop_reason = payload.get("done_reason")
+        error_type = "TruncatedResponseError" if stop_reason == "length" else None
+        response_text = payload.get("response")
         record = CallRecord(
             record_id=str(uuid.uuid4()),
             run_id=run_id,
@@ -155,11 +157,11 @@ def main() -> None:
             max_output_tokens=num_predict,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
-            cached_input_tokens=0,
+            cached_input_tokens=None,
             latency_ms=latency_ms,
             cost_usd=compute_cost(model.model_id, input_tokens, output_tokens),
             stop_reason=stop_reason,
-            error_type="",
+            error_type=error_type,
             response_text=response_text,
         )
         append_record(record, run_id)
