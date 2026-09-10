@@ -50,12 +50,12 @@ Implement `CallRecord` as a Pydantic v2 model in `src/promptlab/usage.py` with e
 | `max_output_tokens`   | `int`                                              | maps to Ollama `num_predict`                              |
 | `input_tokens`        | `int`                                              | Ollama `prompt_eval_count`                                |
 | `output_tokens`       | `int`                                              | Ollama `eval_count`                                       |
-| `cached_input_tokens` | `int`                                              | `None`                                                    |
+| `cached_input_tokens` | `int | None`                                       | `None`                                                    |
 | `latency_ms`          | `int`                                              | measured around the HTTP call                             |
 | `cost_usd`            | `float`                                            | local provider charge; derived from configuration         |
-| `stop_reason`         | `str`                                              | `None`                                                    |
-| `error_type`          | `str`                                              | `None`                                                    |
-| `response_text`       | `str`                                              | `None`                                                    |
+| `stop_reason`         | `str | None`                                       | `None`                                                    |
+| `error_type`          | `str | None`                                       | `None`                                                    |
+| `response_text`       | `str | None`                                       | `None`                                                    |
 
 
 Records append to `runs/{run_id}.jsonl`, one JSON object per line. A run file is never rewritten or edited in place.

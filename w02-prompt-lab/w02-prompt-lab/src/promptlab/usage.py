@@ -36,12 +36,12 @@ class CallRecord(BaseModel):
     max_output_tokens: int
     input_tokens: int
     output_tokens: int
-    cached_input_tokens: int
+    cached_input_tokens: int | None
     latency_ms: int
     cost_usd: float
-    stop_reason: str
-    error_type: str
-    response_text: str
+    stop_reason: str | None
+    error_type: str | None
+    response_text: str | None
 
 
 def compute_cost(model_id: str, input_tokens: int, output_tokens: int) -> float:
