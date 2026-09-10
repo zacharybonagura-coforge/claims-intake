@@ -10,6 +10,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
+from promptlab.config import Settings
+from promptlab.errors import UnknownModelError
 
 class CallRecord(BaseModel):
     """One model-call attempt.
@@ -42,7 +44,10 @@ class CallRecord(BaseModel):
 
 def compute_cost(model_id: str, input_tokens: int, output_tokens: int) -> float:
     """Return the configured provider charge for one model call."""
-    raise NotImplementedError
+    for model in Settings.from_env().models.values():
+        if model.model_id == model_id:
+            return float(model.cost(input_tokens, output_tokens))
+    raise UnknownModelError(model_id)
 
 
 def append_record(record: CallRecord, run_id: str) -> None:
