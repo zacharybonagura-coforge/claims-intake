@@ -8,7 +8,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class CallRecord(BaseModel):
@@ -16,8 +16,28 @@ class CallRecord(BaseModel):
 
     Add the exact fields and types specified by the Day 1 assignment.
     """
+    model_config = ConfigDict(extra="forbid")
 
-    pass
+    record_id: str
+    run_id: str
+    timestamp: datetime
+    provider: Literal["ollama"]
+    model_id: str
+    task: Literal["triage", "summarization", "extraction"]
+    case_id: str
+    prompt_id: str
+    prompt_version: str
+    attempt: int
+    temperature: float
+    max_output_tokens: int
+    input_tokens: int
+    output_tokens: int
+    cached_input_tokens: int
+    latency_ms: int
+    cost_usd: float
+    stop_reason: str
+    error_type: str
+    response_text: str
 
 
 def compute_cost(model_id: str, input_tokens: int, output_tokens: int) -> float:

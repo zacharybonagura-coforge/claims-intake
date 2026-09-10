@@ -14,6 +14,8 @@ This version uses **Mistral through Ollama** instead of a commercial cloud API. 
 - Inside the devcontainer, `curl http://host.docker.internal:11434/api/tags` returns the installed models.
 - `uv sync --frozen` has completed.
 
+
+
 ## Shipped in the starter material
 
 Do not retype these files. They are supplied in the repository.
@@ -25,32 +27,36 @@ Do not retype these files. They are supplied in the repository.
 - `src/promptlab/errors.py`, containing `UnknownModelError`.
 - `tests/test_usage_contract.py`, which checks the Day 1 record contract without making a model call.
 
+
+
 ## The contract
 
 Implement `CallRecord` as a Pydantic v2 model in `src/promptlab/usage.py` with exactly these twenty fields:
 
-| Field | Type | Notes |
-| --- | --- | --- |
-| `record_id` | `str` | UUID4 generated per record |
-| `run_id` | `str` | identifies one execution |
-| `timestamp` | `datetime` | timezone-aware UTC |
-| `provider` | `Literal["ollama"]` | this local assignment uses Ollama |
-| `model_id` | `str` | read from configuration, never hardcoded at the call site |
-| `task` | `Literal["triage", "summarization", "extraction"]` | Day 1 uses `extraction` |
-| `case_id` | `str` | e.g. `E12` |
-| `prompt_id` | `str` | `baseline` |
-| `prompt_version` | `str` | `v0` |
-| `attempt` | `int` | 1 for the first attempt |
-| `temperature` | `float` | the value actually sent |
-| `max_output_tokens` | `int` | maps to Ollama `num_predict` |
-| `input_tokens` | `int` | Ollama `prompt_eval_count` |
-| `output_tokens` | `int` | Ollama `eval_count` |
-| `cached_input_tokens` | `int | None` | use `None` for this lab |
-| `latency_ms` | `int` | measured around the HTTP call |
-| `cost_usd` | `float` | local provider charge; derived from configuration |
-| `stop_reason` | `str | None` | Ollama `done_reason` when available |
-| `error_type` | `str | None` | `None` on success |
-| `response_text` | `str | None` | returned model text |
+
+| Field                 | Type                                               | Notes                                                     |
+| --------------------- | -------------------------------------------------- | --------------------------------------------------------- |
+| `record_id`           | `str`                                              | UUID4 generated per record                                |
+| `run_id`              | `str`                                              | identifies one execution                                  |
+| `timestamp`           | `datetime`                                         | timezone-aware UTC                                        |
+| `provider`            | `Literal["ollama"]`                                | this local assignment uses Ollama                         |
+| `model_id`            | `str`                                              | read from configuration, never hardcoded at the call site |
+| `task`                | `Literal["triage", "summarization", "extraction"]` | Day 1 uses `extraction`                                   |
+| `case_id`             | `str`                                              | e.g. `E12`                                                |
+| `prompt_id`           | `str`                                              | `baseline`                                                |
+| `prompt_version`      | `str`                                              | `v0`                                                      |
+| `attempt`             | `int`                                              | 1 for the first attempt                                   |
+| `temperature`         | `float`                                            | the value actually sent                                   |
+| `max_output_tokens`   | `int`                                              | maps to Ollama `num_predict`                              |
+| `input_tokens`        | `int`                                              | Ollama `prompt_eval_count`                                |
+| `output_tokens`       | `int`                                              | Ollama `eval_count`                                       |
+| `cached_input_tokens` | `int`                                              | `None`                                                    |
+| `latency_ms`          | `int`                                              | measured around the HTTP call                             |
+| `cost_usd`            | `float`                                            | local provider charge; derived from configuration         |
+| `stop_reason`         | `str`                                              | `None`                                                    |
+| `error_type`          | `str`                                              | `None`                                                    |
+| `response_text`       | `str`                                              | `None`                                                    |
+
 
 Records append to `runs/{run_id}.jsonl`, one JSON object per line. A run file is never rewritten or edited in place.
 
@@ -75,6 +81,8 @@ Ollama running on the student's machine has no per-token API/provider fee. The c
 11. Copy the three successful Day 1 records to `docs/day1-run.jsonl`.
 12. Write `docs/day1-observations.md` in no more than three sentences. Compare the shortest and longest cases by input-token count and latency, then state what that tells you about estimating model workload from only a short document.
 
+
+
 ## Deliverable
 
 A merge request containing:
@@ -83,6 +91,8 @@ A merge request containing:
 - `src/promptlab/day1.py`
 - `docs/day1-run.jsonl` with exactly three successful records
 - `docs/day1-observations.md`
+
+
 
 ## Acceptance criteria
 
@@ -98,3 +108,4 @@ A merge request containing:
 10. No cloud credentials are required and no populated `.env` file is committed.
 11. `pytest`, `ruff`, and `mypy` are clean for the Day 1 work.
 12. `docs/day1-observations.md` contains the requested comparison in no more than three sentences.
+
