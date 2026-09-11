@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import random
 import time
 import uuid
 from datetime import UTC, datetime
@@ -104,7 +105,8 @@ class OllamaAdapter:
             if succeeded or error_type != TransientProviderError.__name__:
                 break
             if attempt < max_attempts:
-                time.sleep(0.1 * (2 ** (attempt - 1)))
+                base = 0.1 * (2 ** (attempt - 1))
+                time.sleep(base + random.uniform(0, base))
 
         return CompletionResult(
             succeeded=succeeded,
