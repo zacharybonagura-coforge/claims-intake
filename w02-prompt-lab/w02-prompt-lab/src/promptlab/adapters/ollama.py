@@ -62,14 +62,15 @@ class OllamaAdapter:
                     raise PermanentProviderError(f"HTTP {response.status_code}")
 
                 payload = response.json()
-                text = str(payload.get("response") or payload.get("message", {}).get("content") or "")
+                text = str(payload.get("response") or \
+                    payload.get("message", {}).get("content") or "")
                 input_tokens = int(payload.get("prompt_eval_count") or 0)
                 output_tokens = int(payload.get("eval_count") or 0)
                 stop_reason = payload.get("done_reason")
                 if stop_reason == "length":
                     raise TruncatedResponseError("output token ceiling reached")
                 succeeded = True
-            except (httpx.ConnectError, httpx.TimeoutException, TransientProviderError) as exc:
+            except (httpx.ConnectError, httpx.TimeoutException, TransientProviderError):
                 error_type = TransientProviderError.__name__
             except PermanentProviderError:
                 error_type = PermanentProviderError.__name__

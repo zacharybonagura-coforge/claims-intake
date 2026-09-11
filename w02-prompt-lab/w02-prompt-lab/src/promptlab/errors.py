@@ -6,7 +6,8 @@ class TransientProviderError(Exception):
 
 
 class PermanentProviderError(Exception):
-    """Raised on a malformed request, unavailable model, unsupported parameter, or other non-retryable request failure."""
+    """Raised on a malformed request, unavailable model, unsupported parameter, 
+    or other non-retryable request failure."""
 
 
 class TruncatedResponseError(Exception):
