@@ -104,7 +104,7 @@ class OllamaAdapter:
             if succeeded or error_type != TransientProviderError.__name__:
                 break
             if attempt < max_attempts:
-                time.sleep(0.1)
+                time.sleep(0.1 * (2 ** (attempt - 1)))
 
         return CompletionResult(
             succeeded=succeeded,
