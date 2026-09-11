@@ -2,7 +2,7 @@
 
 Provider is `ollama` for both models. Configured local charge is `$0.00`, so this report compares success counts, tokens, and latency only.
 
-Run `d8a370f6-f592-4972-b0f4-c702323e9125`: 12 summarization cases (`S01`–`S12`) against Mistral and Qwen, same prompt, temperature `0.0`, and `max_output_tokens=256`.
+Run `d8a370f6-f592-4972-b0f4-c702323e9125`: 12 summarization cases (`S01`-`S12`) against Mistral and Qwen, same prompt, temperature `0.0`, and `max_output_tokens=512`.
 
 ## Tokens and latency
 
@@ -69,3 +69,11 @@ Run `d8a370f6-f592-4972-b0f4-c702323e9125`: 12 summarization cases (`S01`–`S12
 ## Observation
 
 Mistral completed every case. Qwen truncated `S01` after 512 output tokens and still emitted about three times as many output tokens overall (5045 vs 1618). Median latency followed that gap, with Qwen 26.8 s vs Mistral 5.4 s. Qwen’s input total was slightly lower (2415 vs 2679). Workload and wait time here are driven by generation length, not by input length. Qwen went past 256 ouput ceiling on every case (318-512 output tokens), while Mistral stayed under it (85-186).
+
+## Why `max_output_tokens=512`
+
+A shared cap of 256 is not valid here because every Qwen case used 318–512 output tokens, so all twelve Qwen calls would have truncated during hidden thinking. You would then be comparing Mistral summaries to empty or cut-off Qwen outputs instead of measuring both models on the same task. 
+
+This is a short summarization task, and the visible answer does not need a large generation budget. 512 is the right cap for this problem. A Mistral-sized cap at around 200 would be enough for the summary text, but would cut Qwen off during hidden thinking (every Qwen case used 318–512 output tokens). 512 lets 11 of 12 Qwen cases finish thinking and still produce an answer, while `S01` hitting 512 with empty `response_text` shows that a larger ceiling is not the fix. Extra max tokens would give more reasoning and latency, but not a longer summary.
+
+We did not disable Qwen thinking. We should compare the configured models as they run, with one output cap, not a thinking flag.
