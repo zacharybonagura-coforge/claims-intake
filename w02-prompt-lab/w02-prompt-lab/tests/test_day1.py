@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
-import httpx
 import pytest
 
 from promptlab.config import Settings
@@ -49,21 +49,6 @@ def test_render_prompt_replaces_placeholder(document_text: str) -> None:
     assert document_text in rendered
 
 
-class FakeResponse:
-    def __init__(self, *, done_reason: str) -> None:
-        self.status_code = 200
-        self._payload = {
-            "message": {"content": "truncated"},
-            "response": "truncated",
-            "prompt_eval_count": 10,
-            "eval_count": 8,
-            "done_reason": done_reason,
-        }
-
-    def json(self) -> dict[str, object]:
-        return self._payload
-
-
 @pytest.mark.parametrize(
     ("done_reason", "expected_error"),
     [
@@ -81,18 +66,31 @@ def test_truncate_example_maps_done_reason(
     settings = Settings.from_env()
     cases = [{"id": "E11", "task": "extraction", "source": "policy text"}]
 
-    def fake_post(*args: object, **kwargs: object) -> FakeResponse:
-        options = kwargs["json"]["options"]
-        assert options["temperature"] == settings.temperature
-        assert options["num_predict"] == 8
-        return FakeResponse(done_reason=done_reason)
+    def fake_generate(
+        _settings: Settings,
+        _prompt: str,
+        *,
+        temperature: float,
+        num_predict: int,
+    ) -> tuple[dict[str, Any], int]:
+        assert temperature == settings.temperature
+        assert num_predict == 8
+        return (
+            {
+                "prompt_eval_count": 10,
+                "eval_count": 8,
+                "done_reason": done_reason,
+                "response": "truncated",
+            },
+            12,
+        )
 
-    monkeypatch.setattr(httpx, "post", fake_post)
+    monkeypatch.setattr("promptlab.day1.generate", fake_generate)
     truncate_example(cases, "run-1", "{document_text}", settings, settings.models["mistral"])
 
     record = json.loads((tmp_path / "runs" / "run-1-truncation.jsonl").read_text().splitlines()[0])
     assert record["case_id"] == "E11"
-    assert record["attempt"] == 1
+    assert record["attempt"] == 2
     assert record["max_output_tokens"] == 8
     assert record["stop_reason"] == done_reason
     assert record["error_type"] == expected_error

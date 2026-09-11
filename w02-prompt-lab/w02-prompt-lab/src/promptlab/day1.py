@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import json
+import time
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from promptlab.adapters.base import CompletionRequest
-from promptlab.adapters.ollama import OllamaAdapter
+import httpx
+
 from promptlab.config import PROJECT_ROOT, ModelConfig, Settings
+from promptlab.usage import CallRecord, append_record, compute_cost
 
 CASE_IDS = ("E12", "E07", "E11")
 CASES_PATH = PROJECT_ROOT / "cases" / "extraction.jsonl"
@@ -38,10 +41,32 @@ def render_prompt(template: str, document_text: str) -> str:
     return template.replace("{document_text}", document_text)
 
 
-def _system_prompt(template: str) -> str:
-    system, _, _ = template.partition("<document>")
-    return system.strip()
-
+def generate(
+    settings: Settings,
+    prompt: str,
+    *,
+    temperature: float,
+    num_predict: int,
+) -> tuple[dict[str, Any], int]:
+    model = settings.models["mistral"]
+    started = time.perf_counter()
+    response = httpx.post(
+        f"{settings.ollama_base_url}/api/generate",
+        json={
+            "model": model.model_id,
+            "prompt": prompt,
+            "stream": False,
+            "options": {
+                "temperature": temperature,
+                "num_predict": num_predict,
+            },
+        },
+        timeout=180.0,
+    )
+    latency_ms = int((time.perf_counter() - started) * 1000)
+    response.raise_for_status()
+    payload: dict[str, Any] = response.json()
+    return payload, latency_ms
 
 def truncate_example(
     cases: list[dict[str, str]],
@@ -58,51 +83,91 @@ def truncate_example(
     if e11 is None:
         raise KeyError("Missing extraction case: E11")
 
-    adapter = OllamaAdapter(model_id=model.model_id)
+    tiny_predict = 8
     truncation_run_id = f"{run_id}-truncation"
-    result = adapter.complete(
-        CompletionRequest(
-            task="extraction",
-            case_id="E11",
-            prompt_id="baseline",
-            prompt_version="v0",
-            system=_system_prompt(template),
-            user_content=e11["source"],
-            temperature=settings.temperature,
-            max_output_tokens=8,
-        ),
-        truncation_run_id,
+    prompt = render_prompt(template, e11["source"])
+    payload, latency_ms = generate(
+        settings,
+        prompt,
+        temperature=settings.temperature,
+        num_predict=tiny_predict,
     )
-    record = result.records[-1]
-    print("E11 truncation", record.stop_reason, record.error_type, record.output_tokens)
-
+    input_tokens = int(payload.get("prompt_eval_count") or 0)
+    output_tokens = int(payload.get("eval_count") or 0)
+    stop_reason = payload.get("done_reason")
+    error_type = "TruncatedResponseError" if stop_reason == "length" else None
+    response_text = payload.get("response")
+    truncation = CallRecord(
+        record_id=str(uuid.uuid4()),
+        run_id=truncation_run_id,
+        timestamp=datetime.now(UTC),
+        provider="ollama",
+        model_id=model.model_id,
+        task="extraction",
+        case_id="E11",
+        prompt_id="baseline",
+        prompt_version="v0",
+        attempt=2,
+        temperature=settings.temperature,
+        max_output_tokens=tiny_predict,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        cached_input_tokens=None,
+        latency_ms=latency_ms,
+        cost_usd=compute_cost(model.model_id, input_tokens, output_tokens),
+        stop_reason=stop_reason,
+        error_type=error_type,
+        response_text=response_text,
+    )
+    append_record(truncation, truncation_run_id)
+    print("E11 truncation", stop_reason, error_type, output_tokens)
 
 def main() -> None:
     settings = Settings.from_env()
-    adapter = OllamaAdapter(model_id=settings.models["mistral"].model_id)
+    model = settings.models["mistral"]
     run_id = str(uuid.uuid4())
+    num_predict = 256
     template = PROMPT_PATH.read_text(encoding="utf-8")
     cases = load_cases(CASES_PATH, CASE_IDS)
-
     for case in cases:
-        result = adapter.complete(
-            CompletionRequest(
-                task="extraction",
-                case_id=case["id"],
-                prompt_id="baseline",
-                prompt_version="v0",
-                system=_system_prompt(template),
-                user_content=case["source"],
-                temperature=settings.temperature,
-                max_output_tokens=256,
-            ),
-            run_id,
+        prompt = render_prompt(template, case["source"])
+        payload, latency_ms = generate(
+            settings,
+            prompt,
+            temperature=settings.temperature,
+            num_predict=num_predict,
         )
-        record = result.records[-1]
+        input_tokens = int(payload.get("prompt_eval_count") or 0)
+        output_tokens = int(payload.get("eval_count") or 0)
+        stop_reason = payload.get("done_reason")
+        error_type = "TruncatedResponseError" if stop_reason == "length" else None
+        response_text = payload.get("response")
+        record = CallRecord(
+            record_id=str(uuid.uuid4()),
+            run_id=run_id,
+            timestamp=datetime.now(UTC),
+            provider="ollama",
+            model_id=model.model_id,
+            task="extraction",
+            case_id=case["id"],
+            prompt_id="baseline",
+            prompt_version="v0",
+            attempt=1,
+            temperature=settings.temperature,
+            max_output_tokens=num_predict,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cached_input_tokens=None,
+            latency_ms=latency_ms,
+            cost_usd=compute_cost(model.model_id, input_tokens, output_tokens),
+            stop_reason=stop_reason,
+            error_type=error_type,
+            response_text=response_text,
+        )
+        append_record(record, run_id)
         print(case["id"], record.latency_ms, record.input_tokens, record.output_tokens)
 
-    truncate_example(cases, run_id, template, settings, settings.models["mistral"])
-
+    truncate_example(cases, run_id, template, settings, model)
 
 if __name__ == "__main__":
     main()
