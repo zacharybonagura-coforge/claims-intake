@@ -1,4 +1,5 @@
 import uuid
+
 from promptlab.adapters.base import CompletionRequest
 from promptlab.adapters.ollama import OllamaAdapter
 from promptlab.config import PROJECT_ROOT, Settings
