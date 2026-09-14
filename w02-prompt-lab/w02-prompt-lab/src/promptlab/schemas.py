@@ -87,28 +87,5 @@ OUTPUT_SCHEMAS: dict[TaskName, type[StrictModel]] = {
 }
 
 
-class ProcedureSummary(StrictModel):
-    version: EvidenceField
-    effective_date: EvidenceField
-    superseded_status: EvidenceField
-    scope: EvidenceField
-    required_analyst_actions: EvidenceField
-    evidence_to_gather: EvidenceField
-    deadlines: EvidenceField
-    out_of_scope: EvidenceField
-
-    def evidence_fields(self) -> dict[str, EvidenceField]:
-        return {
-            "version": self.version,
-            "effective_date": self.effective_date,
-            "superseded_status": self.superseded_status,
-            "scope": self.scope,
-            "required_analyst_actions": self.required_analyst_actions,
-            "evidence_to_gather": self.evidence_to_gather,
-            "deadlines": self.deadlines,
-            "out_of_scope": self.out_of_scope,
-        }
-
-
 def schema_description(model: type[BaseModel]) -> str:
     return json.dumps(model.model_json_schema(), indent=2)
