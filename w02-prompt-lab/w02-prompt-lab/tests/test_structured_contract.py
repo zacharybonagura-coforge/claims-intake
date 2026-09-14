@@ -34,9 +34,9 @@ class RepairingStubAdapter:
 
 def _request() -> CompletionRequest:
     return CompletionRequest(
-        task="summarize",
+        task="summarization",
         case_id="S00",
-        prompt_id="summarize",
+        prompt_id="summarization",
         prompt_version="v1",
         system="",
         user_content="Summarize the supplied procedure.",
