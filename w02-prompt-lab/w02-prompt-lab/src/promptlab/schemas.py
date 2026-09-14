@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -107,3 +108,7 @@ class ProcedureSummary(StrictModel):
             "deadlines": self.deadlines,
             "out_of_scope": self.out_of_scope,
         }
+
+
+def schema_description(model: type[BaseModel]) -> str:
+    return json.dumps(model.model_json_schema(), indent=2)
