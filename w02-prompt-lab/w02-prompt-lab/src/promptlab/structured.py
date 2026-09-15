@@ -13,7 +13,7 @@ def complete_structured[T: BaseModel](
     schema: type[T],
     run_id: str,
     max_repairs: int = 1,
-) -> T:
+) -> tuple[T, int]:
     """Return a schema-validated completion with a bounded semantic repair loop.
 
     Transport retry remains inside the adapter.
@@ -27,16 +27,18 @@ def complete_structured[T: BaseModel](
     result = adapter.complete(request, run_id)
     parsed, error = _parse_and_validate(result.text, schema)
     if parsed is not None:
-        return parsed
+        return parsed, 1
 
     last_error = error
+    tries = 1
     for _ in range(max_repairs):
+        tries += 1
         new_user_content = _repair_user_content(request, result.text, last_error)
         repair_request = request.model_copy(update={"user_content": new_user_content})
         result = adapter.complete(repair_request, run_id)
         parsed, error = _parse_and_validate(result.text, schema)
         if parsed is not None:
-            return parsed
+            return parsed, tries
         last_error = error
 
     raise ValueError(f"schema validation failed after {max_repairs} repair(s): {last_error}")
