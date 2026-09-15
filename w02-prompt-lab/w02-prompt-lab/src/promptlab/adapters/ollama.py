@@ -31,9 +31,9 @@ class OllamaAdapter:
         succeeded = False
         text: str | None = None
         error_type: str | None = None
+        started = time.perf_counter()   # measure latency from first attempt to final result
 
         for attempt in range(1, max_attempts + 1):
-            started = time.perf_counter()
             stop_reason: str | None = None
             input_tokens = 0
             output_tokens = 0
