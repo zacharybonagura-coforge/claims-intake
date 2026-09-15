@@ -108,4 +108,16 @@ def render_user(
     - untrusted text is supplied through ``document_text``
     - literal JSON braces in prompt examples must remain literal
     """
-    raise NotImplementedError
+    required = _placeholders(template.user_template)
+    missing = sorted(required - set(variables.keys()) - {"document_text"})
+    if missing:
+        raise MissingPromptVariableError(missing)
+    sanitized = (
+        untrusted.replace(CUSTOMER_MARKER_CLOSE, "&lt;/customer_message&gt;")
+        .replace(DOCUMENT_MARKER_CLOSE, "&lt;/document&gt;")
+    )
+    rendered = template.user_template
+    for name in required:
+        value = sanitized if name == "document_text" else variables[name]
+        rendered = rendered.replace("{" + name + "}", value)
+    return rendered
