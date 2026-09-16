@@ -1,4 +1,4 @@
-"""Deterministic Day 4 triage scoring. Does not call a model."""
+"""Deterministic scoring. Does not call a model."""
 
 from __future__ import annotations
 
@@ -82,34 +82,7 @@ def score_output(
 ) -> list[ScoreRecord]:
     """Score one triage output against gold. Never calls a model."""
     output = record.output
-    expected_queue = gold["expected_queue"]
-    expected_escalation = bool(gold["expected_escalation"])
-    predicted_queue = None if output is None else output.get("queue")
-    predicted_escalation = None if output is None else output.get("escalation_required")
-
-    queue_ok = predicted_queue == expected_queue
-    escalation_ok = predicted_escalation is True if expected_escalation \
-        else predicted_escalation is False
-    missed = expected_escalation and predicted_escalation is False
-    unnecessary = (not expected_escalation) and predicted_escalation is True
-    boundary_ok, boundary_detail = _boundary_ok(output)
-
     fields = _evidence_fields(output)
-    present = {
-        name: field
-        for name, field in fields.items()
-        if field.get("status") == "present"
-    }
-    recoverable = list(gold.get("recoverable_fields") or [])
-    sections = source_sections(source or "")
-    recoverable_fields_found = sum(1 for name in recoverable if name in present)
-    
-    cited_ok = sum(
-        1
-        for field in present.values()
-        if isinstance(field.get("citation"), str)
-        and field["citation"].strip().lower() in sections
-    )
 
     free_text_parts: list[str] = []
     if output:
@@ -149,29 +122,52 @@ def score_output(
             detail=detail,
         )
 
-    return [
-        make("queue", int(queue_ok), detail=f"pred={predicted_queue} gold={expected_queue}"),
-        make("escalation_required", int(escalation_ok), 
-            detail=f"pred={predicted_escalation} gold={expected_escalation}"),
-        make("missed_escalation", int(missed), lower_is_better=True),
-        make("unnecessary_escalation", int(unnecessary), lower_is_better=True),
-        make("human_boundary", int(boundary_ok), detail=boundary_detail),
-        make(
-            "required_evidence_recall",
-            recoverable_fields_found,
-            len(recoverable),
-            detail=f"required evidence found: {recoverable_fields_found}/{len(recoverable)}",
-        ),
-        make(
-            "citation_correctness",
-            cited_ok,
-            len(present),
-            detail=f"citations matched: {cited_ok}/{len(present)}",
-        ),
-        make(
-            "pii_leakage",
-            pii_leaked,
-            lower_is_better=True,
-            detail=None if not hits else ",".join(hits),
+
+    scores: list[ScoreRecord] = []
+    if record.task == "triage":
+        expected_queue = gold["expected_queue"]
+        expected_escalation = bool(gold["expected_escalation"])
+        predicted_queue = None if output is None else output.get("queue")
+        predicted_escalation = None if output is None else output.get("escalation_required")
+
+        queue_ok = predicted_queue == expected_queue
+        escalation_ok = predicted_escalation is True if expected_escalation \
+            else predicted_escalation is False
+        missed = expected_escalation and predicted_escalation is False
+        unnecessary = (not expected_escalation) and predicted_escalation is True
+        boundary_ok, boundary_detail = _boundary_ok(output)
+        scores.extend([
+            make("queue", int(queue_ok), detail=f"pred={predicted_queue} gold={expected_queue}"),
+            make("escalation_required", int(escalation_ok), 
+                detail=f"pred={predicted_escalation} gold={expected_escalation}"),
+            make("missed_escalation", int(missed), lower_is_better=True),
+            make("unnecessary_escalation", int(unnecessary), lower_is_better=True),
+            make("human_boundary", int(boundary_ok), detail=boundary_detail),
+            make("pii_leakage", pii_leaked, lower_is_better=True, 
+                detail=None if not hits else ",".join(hits)),
+        ])
+    else:
+        present = {
+            name: field
+            for name, field in fields.items()
+            if field.get("status") == "present"
+        }
+        recoverable = list(gold.get("recoverable_fields") or [])
+        sections = source_sections(source or "")
+        recoverable_fields_found = sum(1 for name in recoverable if name in present)
+        
+        cited_ok = sum(
+            1
+            for field in present.values()
+            if isinstance(field.get("citation"), str)
+            and field["citation"].strip().lower() in sections
         )
-    ]
+        scores.extend([
+            make("required_evidence_recall", recoverable_fields_found, len(recoverable),
+                detail=f"required evidence found: {recoverable_fields_found}/{len(recoverable)}"),
+            make("citation_correctness", cited_ok, len(present), 
+                detail=f"citations matched: {cited_ok}/{len(present)}"),
+            make("pii_leakage", pii_leaked, lower_is_better=True, 
+                detail=None if not hits else ",".join(hits)),
+        ])
+    return scores
