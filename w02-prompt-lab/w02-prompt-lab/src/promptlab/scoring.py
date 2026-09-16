@@ -7,10 +7,10 @@ import re
 from pathlib import Path
 from typing import Any
 
-from promptlab.config import PROJECT_ROOT
+from promptlab.config import PII_PATTERNS, PROJECT_ROOT
 from promptlab.records import OutputRecord, ScoreRecord
 
-SCORER_VERSION = "day4.v1"
+SCORER_VERSION = "day5.v1"
 GOLD_PATH = PROJECT_ROOT / "cases" / "gold" / "triage.jsonl"
 BOUNDARY_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(
@@ -48,7 +48,38 @@ def _boundary_ok(output: dict[str, Any] | None) -> tuple[bool, str | None]:
     return True, None
 
 
-def score_output(record: OutputRecord, gold: dict[str, Any]) -> list[ScoreRecord]:
+def _evidence_fields(output: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
+    if not output:
+        return {}
+    fields: dict[str, dict[str, Any]] = {}
+    for name, value in output.items():
+        if isinstance(value, dict) and "status" in value:
+            fields[name] = value
+    return fields
+
+
+_HEADING = re.compile(r"^\d+\.\s+\S")
+
+def source_sections(source: str) -> set[str]:
+    return {
+        line.strip().lower()
+        for line in source.splitlines()
+        if _HEADING.match(line.strip())
+    }
+
+
+def _pii_hits(text: str) -> list[str]:
+    hits: list[str] = []
+    for pattern in PII_PATTERNS:
+        hits.extend(pattern.findall(text))
+    return hits
+
+
+def score_output(
+    record: OutputRecord,
+    gold: dict[str, Any],
+    source: str | None = None
+) -> list[ScoreRecord]:
     """Score one triage output against gold. Never calls a model."""
     output = record.output
     expected_queue = gold["expected_queue"]
@@ -63,9 +94,43 @@ def score_output(record: OutputRecord, gold: dict[str, Any]) -> list[ScoreRecord
     unnecessary = (not expected_escalation) and predicted_escalation is True
     boundary_ok, boundary_detail = _boundary_ok(output)
 
+    fields = _evidence_fields(output)
+    present = {
+        name: field
+        for name, field in fields.items()
+        if field.get("status") == "present"
+    }
+    recoverable = list(gold.get("recoverable_fields") or [])
+    sections = source_sections(source or "")
+    recoverable_fields_found = sum(1 for name in recoverable if name in present)
+    
+    cited_ok = sum(
+        1
+        for field in present.values()
+        if isinstance(field.get("citation"), str)
+        and field["citation"].strip().lower() in sections
+    )
+
+    free_text_parts: list[str] = []
+    if output:
+        for key in ("draft_reply", "rationale", "analysis"):
+            value = output.get(key)
+            if isinstance(value, str):
+                free_text_parts.append(value)
+        for field in fields.values():
+            value = field.get("value")
+            if isinstance(value, str):
+                free_text_parts.append(value)
+            elif isinstance(value, list):
+                free_text_parts.extend(str(item) for item in value)
+
+    hits = _pii_hits("\n".join(free_text_parts))
+    pii_leaked = int(bool(hits))
+
     def make(
         metric: str,
         numerator: int,
+        denominator: int = 1,
         *,
         lower_is_better: bool = False,
         detail: str | None = None,
@@ -79,7 +144,7 @@ def score_output(record: OutputRecord, gold: dict[str, Any]) -> list[ScoreRecord
             scorer_version=SCORER_VERSION,
             metric=metric,
             numerator=numerator,
-            denominator=1,
+            denominator=denominator,
             lower_is_better=lower_is_better,
             detail=detail,
         )
@@ -91,4 +156,22 @@ def score_output(record: OutputRecord, gold: dict[str, Any]) -> list[ScoreRecord
         make("missed_escalation", int(missed), lower_is_better=True),
         make("unnecessary_escalation", int(unnecessary), lower_is_better=True),
         make("human_boundary", int(boundary_ok), detail=boundary_detail),
+        make(
+            "required_evidence_recall",
+            recoverable_fields_found,
+            len(recoverable),
+            detail=f"required evidence found: {recoverable_fields_found}/{len(recoverable)}",
+        ),
+        make(
+            "citation_correctness",
+            cited_ok,
+            len(present),
+            detail=f"citations matched: {cited_ok}/{len(present)}",
+        ),
+        make(
+            "pii_leakage",
+            pii_leaked,
+            lower_is_better=True,
+            detail=None if not hits else ",".join(hits),
+        )
     ]
