@@ -10,10 +10,12 @@ from __future__ import annotations
 
 import hashlib
 import re
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Mapping
 
 from pydantic import BaseModel, ConfigDict
+
+from promptlab.errors import MissingPromptVariableError
 
 PROMPT_DIR = Path(__file__).resolve().parents[1] / "prompts"
 
@@ -22,14 +24,6 @@ CUSTOMER_MARKER_CLOSE = "</customer_message>"
 
 _SAFE_COMPONENT = re.compile(r"^[A-Za-z0-9_-]+$")
 _PLACEHOLDER = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
-
-
-class MissingPromptVariableError(ValueError):
-    """A required prompt variable was not supplied."""
-
-    def __init__(self, missing: list[str]) -> None:
-        self.missing = missing
-        super().__init__(f"missing prompt variables: {', '.join(missing)}")
 
 
 class PromptTemplate(BaseModel):
@@ -108,4 +102,18 @@ def render_user(
     - untrusted text is supplied through ``document_text``
     - literal JSON braces in prompt examples must remain literal
     """
-    raise NotImplementedError
+    required = _placeholders(template.user_template)
+    missing = sorted(required - set(variables.keys()) - {"document_text"})
+    if missing:
+        raise MissingPromptVariableError(
+            f"missing prompt variables: {', '.join(missing)}"
+        )
+    sanitized = (
+        untrusted.replace(CUSTOMER_MARKER_CLOSE, "&lt;/customer_message&gt;")
+        .replace(DOCUMENT_MARKER_CLOSE, "&lt;/document&gt;")
+    )
+    rendered = template.user_template
+    for name in required:
+        value = sanitized if name == "document_text" else variables[name]
+        rendered = rendered.replace("{" + name + "}", value)
+    return rendered

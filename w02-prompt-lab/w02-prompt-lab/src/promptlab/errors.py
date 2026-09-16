@@ -16,3 +16,6 @@ class TruncatedResponseError(Exception):
 
 class UnknownModelError(ValueError):
     """Raised when a model identifier is not present in the configured model table."""
+
+class MissingPromptVariableError(ValueError):
+    """Raised when a required prompt variable was not supplied."""
