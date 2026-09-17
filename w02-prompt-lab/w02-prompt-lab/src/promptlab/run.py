@@ -54,7 +54,11 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Validate configuration and corpus without calling Ollama",
     )
-    parser.add_argument("--think", action="store_true", help="Enable model thinking (off by default)")
+    parser.add_argument(
+        "--think",
+        action="store_true",
+        help="Enable model thinking (off by default)"
+    )
     return parser
 
 
