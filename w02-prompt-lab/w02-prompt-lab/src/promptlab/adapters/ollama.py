@@ -20,9 +20,10 @@ from promptlab.usage import CallRecord, append_record, compute_cost
 class OllamaAdapter:
     provider = "ollama"
 
-    def __init__(self, model_id: str) -> None:
+    def __init__(self, model_id: str, think: bool = False) -> None:
         self.provider = "ollama"
         self.model_id = model_id
+        self.think = think
         self._settings = Settings.from_env()
 
     def complete(self, request: CompletionRequest, run_id: str) -> CompletionResult:
@@ -49,6 +50,7 @@ class OllamaAdapter:
                         "prompt": request.user_content,
                         "system": request.system,
                         "stream": False,
+                        "think": self.think,
                         "options": {
                             "temperature": request.temperature,
                             "num_predict": request.max_output_tokens,
