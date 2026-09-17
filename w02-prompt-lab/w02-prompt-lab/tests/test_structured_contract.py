@@ -58,7 +58,7 @@ def test_complete_structured_repairs_once() -> None:
 
     assert result == TinySchema(value="fixed")
     assert adapter.calls == 2
-    assert tries == 2
+    assert tries == 1
 
 
 def test_repair_request_carries_validation_context() -> None:

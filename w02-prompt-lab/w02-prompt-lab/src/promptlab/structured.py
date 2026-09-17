@@ -27,12 +27,10 @@ def complete_structured[T: BaseModel](
     result = adapter.complete(request, run_id)
     parsed, error = _parse_and_validate(result.text, schema)
     if parsed is not None:
-        return parsed, 1
+        return parsed, 0
 
     last_error = error
-    tries = 1
-    for _ in range(max_repairs):
-        tries += 1
+    for tries in range(1, max_repairs + 1):
         new_user_content = _repair_user_content(request, result.text, last_error)
         repair_request = request.model_copy(update={"user_content": new_user_content})
         result = adapter.complete(repair_request, run_id)

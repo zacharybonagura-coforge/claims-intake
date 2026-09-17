@@ -77,7 +77,7 @@ def run_version(
         except ValueError as exc:
             output = None
             error = str(exc)
-            tries = 1 + settings.max_schema_repairs
+            tries = settings.max_schema_repairs
 
         record = OutputRecord(
             run_id=run_id,
