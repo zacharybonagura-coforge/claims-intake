@@ -4,28 +4,44 @@ import argparse
 import re
 from collections import defaultdict
 from datetime import date
-from decimal import Decimal
 from pathlib import Path
 from typing import cast
 
-from promptlab.config import PROJECT_ROOT, ModelConfig, Settings
+from promptlab.adapters.base import CompletionRequest
+from promptlab.adapters.ollama import OllamaAdapter
+from promptlab.config import PROJECT_ROOT, Settings
 from promptlab.corpus import GoldLabel, load_cases, validate_corpus
-from promptlab.prompts import build_prompt, prompt_version
-from promptlab.providers import CompletionFailed, OllamaProvider
-from promptlab.records import OutputRecord, ScoreRecord, UsageRecord, append_record
+from promptlab.prompts import load, render_user
+from promptlab.records import OutputRecord, ScoreRecord, append_record
 from promptlab.report import write_reports
 from promptlab.rules import VersionCandidate, select_current_version
 from promptlab.schemas import (
-    OUTPUT_SCHEMAS,
     PolicyExtraction,
     StrictModel,
     SummarizationOutput,
     TaskName,
+    TriageOutput,
+    schema_description,
 )
-from promptlab.scoring import SCORER_VERSION, failure_scores, score_output
+from promptlab.scoring import SCORER_VERSION, score_output
+from promptlab.structured import complete_structured
 
 RUN_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$")
-
+TASK_PROMPTS: dict[TaskName, dict[str, tuple[str, str, type[StrictModel]]]] = {
+    "triage": {
+        "mistral": ("triage", "v3", TriageOutput),
+        "qwen": ("triage", "v1", TriageOutput),
+    },
+    "summarization": {
+        "mistral": ("summarize", "v2", SummarizationOutput),
+        "qwen": ("summarize", "v2", SummarizationOutput),
+    },
+    "extraction": {
+        "mistral": ("extract", "v2", PolicyExtraction),
+        "qwen": ("extract", "v2", PolicyExtraction),
+    },
+}
+MAX_OUTPUT_TOKENS = 512
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run the local two-model prompt comparison")
@@ -38,37 +54,8 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Validate configuration and corpus without calling Ollama",
     )
+    parser.add_argument("--think", action="store_true", help="Enable model thinking (off by default)")
     return parser
-
-
-def _usage_record(
-    *,
-    run_id: str,
-    task: TaskName,
-    case_id: str,
-    model: ModelConfig,
-    version: str,
-    attempt: object,
-) -> UsageRecord:
-    from promptlab.providers import AttemptData
-
-    data = cast(AttemptData, attempt)
-    return UsageRecord(
-        run_id=run_id,
-        task=task,
-        case_id=case_id,
-        model_name=model.logical_name,
-        model_id=model.model_id,
-        prompt_version=version,
-        attempt=data.attempt,
-        kind=data.kind,
-        status=data.status,
-        prompt_tokens=data.prompt_tokens,
-        completion_tokens=data.completion_tokens,
-        latency_ms=data.latency_ms,
-        cost_usd=data.cost_usd,
-        error=data.error,
-    )
 
 
 def _version_fields(output: StrictModel) -> tuple[str, str] | None:
@@ -115,7 +102,6 @@ def _add_version_scores(
         if expected is None or as_of_raw is None:
             continue
         candidates: list[VersionCandidate] = []
-        prompt_versions: set[str] = set()
         for label in group_labels:
             output = outputs.get(label.id)
             if output is None:
@@ -131,14 +117,14 @@ def _add_version_scores(
             candidates.append(
                 VersionCandidate(case_id=label.id, version=version, effective_date=effective)
             )
-            prompt_versions.add(prompt_version(task, model_name))
+
         selected = select_current_version(candidates, date.fromisoformat(as_of_raw))
         record = ScoreRecord(
             run_id=run_id,
             task=task,
             case_id=f"version:{group_name}",
             model_name=model_name,
-            prompt_version=",".join(sorted(prompt_versions)) or prompt_version(task, model_name),
+            prompt_version=TASK_PROMPTS[task][model_name][1],
             scorer_version=SCORER_VERSION,
             metric="version_selection_accuracy",
             numerator=int(selected is not None and selected.case_id == expected),
@@ -175,117 +161,89 @@ def main() -> None:
     if run_dir.exists():
         raise SystemExit(f"Run directory already exists: {run_dir}")
     run_dir.mkdir(parents=True)
-    usage_path = run_dir / "usage.jsonl"
     outputs_path = run_dir / "outputs.jsonl"
     scores_path = run_dir / "scores.jsonl"
 
-    all_usage: list[UsageRecord] = []
     all_outputs: list[OutputRecord] = []
     all_scores: list[ScoreRecord] = []
-    total_cost = Decimal("0")
     validated_by_task_model: dict[tuple[TaskName, str], dict[str, StrictModel]] = defaultdict(dict)
     labels_by_task: dict[TaskName, list[GoldLabel]] = defaultdict(list)
 
-    provider = OllamaProvider(settings)
-    try:
-        for task in selected_tasks:
-            pairs = load_cases(task)
-            if limit is not None:
-                pairs = pairs[:limit]
-            labels_by_task[task] = [gold for _case, gold in pairs]
-            for model_name in selected_models:
-                model = settings.models[model_name]
-                version = prompt_version(task, model_name)
-                for case, gold in pairs:
-                    if total_cost >= settings.per_run_cap_usd:
-                        raise SystemExit(
-                            f"Per-run cost cap reached before {task}/{model_name}/{case.id}"
-                        )
-                    prompt = build_prompt(task, model_name, case.source)
-                    try:
-                        result = provider.complete(
-                            model=model,
-                            prompt=prompt,
-                            output_schema=OUTPUT_SCHEMAS[task],
-                        )
-                        for attempt in result.attempts:
-                            usage_record = _usage_record(
-                                run_id=run_id,
-                                task=task,
-                                case_id=case.id,
-                                model=model,
-                                version=version,
-                                attempt=attempt,
-                            )
-                            append_record(usage_path, usage_record)
-                            all_usage.append(usage_record)
-                            total_cost += usage_record.cost_usd
-                        output_record = OutputRecord(
-                            run_id=run_id,
-                            task=task,
-                            case_id=case.id,
-                            model_name=model_name,
-                            model_id=model.model_id,
-                            prompt_version=version,
-                            succeeded=True,
-                            repairs=result.repairs,
-                            output=result.output.model_dump(mode="json"),
-                        )
-                        validated_by_task_model[(task, model_name)][case.id] = result.output
-                        case_scores = score_output(
-                            run_id=run_id,
-                            task=task,
-                            case_id=case.id,
-                            model_name=model_name,
-                            prompt_version=version,
-                            output=result.output,
-                            gold=gold,
-                            source=case.source,
-                        )
-                    except CompletionFailed as exc:
-                        for attempt in exc.attempts:
-                            usage_record = _usage_record(
-                                run_id=run_id,
-                                task=task,
-                                case_id=case.id,
-                                model=model,
-                                version=version,
-                                attempt=attempt,
-                            )
-                            append_record(usage_path, usage_record)
-                            all_usage.append(usage_record)
-                            total_cost += usage_record.cost_usd
-                        output_record = OutputRecord(
-                            run_id=run_id,
-                            task=task,
-                            case_id=case.id,
-                            model_name=model_name,
-                            model_id=model.model_id,
-                            prompt_version=version,
-                            succeeded=False,
-                            repairs=exc.repairs,
-                            output=None,
-                            error=str(exc),
-                        )
-                        case_scores = failure_scores(
-                            run_id=run_id,
-                            task=task,
-                            case_id=case.id,
-                            model_name=model_name,
-                            prompt_version=version,
-                            gold=gold,
-                        )
-                    append_record(outputs_path, output_record)
-                    all_outputs.append(output_record)
-                    for score in case_scores:
-                        append_record(scores_path, score)
-                        all_scores.append(score)
-                    print(
-                        f"{task:13} {model_name:8} {case.id:5} "
-                        f"{'ok' if output_record.succeeded else 'failed'}"
+    for task in selected_tasks:
+        pairs = load_cases(task)
+        if limit is not None:
+            pairs = pairs[:limit]
+        labels_by_task[task] = [gold for _case, gold in pairs]
+        for model_name in selected_models:
+            model = settings.models[model_name]
+            adapter = OllamaAdapter(model_id=model.model_id, think=args.think)
+            prompt_id, version, schema = TASK_PROMPTS[task][model_name]
+            template = load(prompt_id, version)
+            variables: dict[str, str] = {}
+            if "{schema_description}" in template.user_template:
+                variables["schema_description"] = schema_description(schema)
+
+            for case, gold in pairs:
+                request = CompletionRequest(
+                    task=task,
+                    case_id=case.id,
+                    prompt_id=prompt_id,
+                    prompt_version=version,
+                    system=template.system,
+                    user_content=render_user(
+                        template,
+                        variables,
+                        untrusted=case.document_text,
+                    ),
+                    temperature=settings.temperature,
+                    max_output_tokens=MAX_OUTPUT_TOKENS,
+                )
+                parsed: StrictModel | None
+                try:
+                    parsed, tries = complete_structured(
+                        adapter,
+                        request,
+                        schema,
+                        run_id,
+                        max_repairs=settings.max_schema_repairs,
                     )
-    finally:
-        provider.close()
+                    output = parsed.model_dump()
+                    error = None
+                except ValueError as exc:
+                    parsed = None
+                    output = None
+                    error = str(exc)
+                    tries = settings.max_schema_repairs
+
+                output_record = OutputRecord(
+                    run_id=run_id,
+                    task=task,
+                    case_id=case.id,
+                    model_name=model_name,
+                    model_id=model.model_id,
+                    prompt_version=version,
+                    succeeded=output is not None,
+                    repairs=tries,
+                    output=output,
+                    error=error,
+                )
+                if parsed is not None:
+                    validated_by_task_model[(task, model_name)][case.id] = parsed
+                gold_dict = gold.model_dump()
+                case_scores = score_output(
+                    output_record,
+                    gold_dict,
+                    source=case.document_text,
+                )
+                append_record(outputs_path, output_record)
+                all_outputs.append(output_record)
+                for score in case_scores:
+                    append_record(scores_path, score)
+                    all_scores.append(score)
+                print(
+                    f"{task:13} {model_name:8} {case.id:5} "
+                    f"{'ok' if output_record.succeeded else 'failed'}"
+                )
 
     for task in selected_tasks:
         if task == "triage":
@@ -304,14 +262,13 @@ def main() -> None:
     write_reports(
         run_id=run_id,
         models=selected_models,
-        usage=all_usage,
+        usage=[],
         outputs=all_outputs,
         scores=all_scores,
         report_path=PROJECT_ROOT / "reports" / "comparison.md",
         decision_path=PROJECT_ROOT / "docs" / "model-decision.md",
     )
     print(f"Report: {PROJECT_ROOT / 'reports' / 'comparison.md'}")
-    print(f"Recorded provider cost: ${total_cost}")
 
 
 if __name__ == "__main__":
