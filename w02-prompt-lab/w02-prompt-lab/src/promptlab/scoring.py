@@ -113,6 +113,12 @@ def score_output(
             task=record.task,
             case_id=record.case_id,
             model_name=record.model_name,
+            model_id=record.model_id,
+            prompt_id={
+                "triage": "triage",
+                "summarization": "summarize",
+                "extraction": "extract",
+            }[record.task],
             prompt_version=record.prompt_version,
             scorer_version=SCORER_VERSION,
             metric=metric,

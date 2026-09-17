@@ -44,6 +44,8 @@ def test_report_is_generated_from_records(tmp_path: object) -> None:
             task="triage",
             case_id="T01",
             model_name="mistral",
+            model_id="mistral:7b",
+            prompt_id="triage",
             prompt_version="triage-mistral-v1",
             scorer_version="2.0.0",
             metric="queue_accuracy",

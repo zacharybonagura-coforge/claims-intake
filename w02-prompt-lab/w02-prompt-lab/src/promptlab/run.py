@@ -81,6 +81,7 @@ def _add_version_scores(
     run_id: str,
     task: TaskName,
     model_name: str,
+    model_id: str,
     labels: list[GoldLabel],
     outputs: dict[str, StrictModel],
     scores_path: Path,
@@ -123,12 +124,15 @@ def _add_version_scores(
             )
 
         selected = select_current_version(candidates, date.fromisoformat(as_of_raw))
+        prompt_id, prompt_version, _schema = TASK_PROMPTS[task][model_name]
         record = ScoreRecord(
             run_id=run_id,
             task=task,
             case_id=f"version:{group_name}",
             model_name=model_name,
-            prompt_version=TASK_PROMPTS[task][model_name][1],
+            model_id=model_id,
+            prompt_id=prompt_id,
+            prompt_version=prompt_version,
             scorer_version=SCORER_VERSION,
             metric="version_selection_accuracy",
             numerator=int(selected is not None and selected.case_id == expected),
@@ -257,6 +261,7 @@ def main() -> None:
                 run_id=run_id,
                 task=task,
                 model_name=model_name,
+                model_id=settings.models[model_name].model_id,
                 labels=labels_by_task[task],
                 outputs=validated_by_task_model[(task, model_name)],
                 scores_path=scores_path,

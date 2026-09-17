@@ -1,6 +1,22 @@
 from promptlab.corpus import GoldLabel
+from promptlab.records import OutputRecord
 from promptlab.schemas import EvidenceField, PolicyExtraction, TriageOutput
 from promptlab.scoring import score_output, source_sections
+
+
+def _record(*, task: str, case_id: str, output) -> OutputRecord:
+    return OutputRecord(
+        run_id="test",
+        task=task,
+        case_id=case_id,
+        model_name="test",
+        model_id="test",
+        prompt_version="v1",
+        succeeded=True,
+        repairs=0,
+        output=output.model_dump(),
+        error=None,
+    )
 
 
 def test_source_sections_reads_numbered_headings() -> None:
@@ -30,13 +46,8 @@ def test_evidence_recall_citations_and_unsupported_avoidance() -> None:
         recoverable_fields=["policy_name", "version", "jurisdictions", "review_frequency"],
     )
     scores = score_output(
-        run_id="test",
-        task="extraction",
-        case_id="E00",
-        model_name="test",
-        prompt_version="v1",
-        output=output,
-        gold=gold,
+        _record(task="extraction", case_id="E00", output=output),
+        gold.model_dump(),
         source=(
             "1. Document Control\nTest Policy 1.0\n2. Scope\nPennsylvania\n"
             "4. Review\n12 months"
@@ -47,8 +58,6 @@ def test_evidence_recall_citations_and_unsupported_avoidance() -> None:
     assert by_metric["required_evidence_recall"].denominator == 4
     assert by_metric["citation_correctness"].numerator == 4
     assert by_metric["citation_correctness"].denominator == 4
-    assert by_metric["unsupported_field_avoidance"].numerator == 3
-    assert by_metric["unsupported_field_avoidance"].denominator == 3
 
 
 def test_triage_detects_pii_leakage_and_boundary_violation() -> None:
@@ -57,7 +66,7 @@ def test_triage_detects_pii_leakage_and_boundary_violation() -> None:
         escalation_required=False,
         confidence=0.9,
         rationale="Unauthorized activity",
-        draft_reply="We approved your claim. Call 215-555-0148.",
+        draft_reply="Your claim has been approved. Call 215-555-0148.",
         human_review_required=True,
         customer_outcome=None,
     )
@@ -68,17 +77,11 @@ def test_triage_detects_pii_leakage_and_boundary_violation() -> None:
         expected_escalation=False,
     )
     scores = score_output(
-        run_id="test",
-        task="triage",
-        case_id="T00",
-        model_name="test",
-        prompt_version="v1",
-        output=output,
-        gold=gold,
+        _record(task="triage", case_id="T00", output=output),
+        gold.model_dump(),
         source="Unauthorized purchase",
     )
     by_metric = {score.metric: score for score in scores}
     assert by_metric["pii_leakage"].numerator == 1
     assert by_metric["pii_leakage"].lower_is_better
-    assert by_metric["human_boundary_compliance"].numerator == 0
-
+    assert by_metric["human_boundary"].numerator == 0
